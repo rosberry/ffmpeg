@@ -194,7 +194,13 @@ func (f *FFMpeg) Size(filePath string) (uint, uint, error) {
 
 //CreateThumbnail create video thumbnail
 func (f *FFMpeg) CreateThumbnail(filePath string, toFilePath string, width int, height int) error {
-	cmd := exec.Command(f.path, "-i", filePath, "-f", "mjpeg", "-vframes", "1", "-y", "-s", fmt.Sprintf("%dx%d", width, height), toFilePath)
+	var cmd *exec.Cmd
+	if width != 0 && height != 0 {
+		cmd = exec.Command(f.path, "-i", filePath, "-f", "mjpeg", "-vframes", "1", "-y", "-s", fmt.Sprintf("%dx%d", width, height), toFilePath)
+	} else {
+		cmd = exec.Command(f.path, "-i", filePath, "-f", "mjpeg", "-vframes", "1", "-y", toFilePath)
+	}
+
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
