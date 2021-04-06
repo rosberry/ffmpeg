@@ -1,8 +1,14 @@
 package ffmpeg
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"log"
+	"math"
 	"os"
+	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -12,224 +18,308 @@ import (
 )
 
 const (
-	TestExpectedDuration = time.Second * 10
-	TestVideoFilePath    = "/testVideo.mpg"
-	TestBitrateFilePath  = "/testBitrate.mpg"
-	TestTitleFilePath    = "/testTitle.mpg"
-	TestBitrate          = 4000
-	TestWidth            = 1280
-	TestHeight           = 720
+	expectedDurationTime = 10
+	expectedDurationUnit = time.Second
+	testVideoFilePath    = "/testVideo.avi"
+	testBitrateFilePath  = "/testBitrate.avi"
+	testVideoTitle       = "test title"
+	testBitrate          = 4000
+	testWidth            = 1280
+	testHeight           = 720
 	startTrim            = 2
 	durationTrim         = 5
 )
 
 var (
-	pathToUtility = os.Getenv("FFMPEG_SRC")
-	pathToSources = os.Getenv("TEST_FILES_SRC")
-	abortProcess  bool
-	conveyGiven   = "Given test path to video sources and path to ffmpeg binary"
-	conveyTitles  = map[string]map[string]string{
-		"new": {
-			"title":      "We want to check that the utility correctly creates a new instance.",
-			"check type": "We want to check that the path to the return type matches the expectation.",
+	errorUndefinedPath = errors.New("path is undefined")
+
+	pathToUtility    = os.Getenv("FFMPEG_SRC")
+	pathToSources    = os.Getenv("TEST_FILES_SRC")
+	expectedDuration = expectedDurationTime * expectedDurationUnit
+	conveyTitles     = map[string]map[string]string{
+		"New": {
+			"given": "Given ffmpeg path.",
+			"when":  "When we call the function 'new'.",
+			"then":  "Then we expect the correct return type.",
 		},
-		"setPath": {
-			"title":        "We want to check that the utility correctly set path of video sources.",
-			"valid path":   "We want to check that the path to the resource folder we have set is valid.",
-			"equal path":   "We want to check that path to source should be equal path in ffmpeg settings.",
-			"other errors": "We want to check that we do not have any errors related to the resource folder.",
+		"SetPath": {
+			"given": "Given test path to video sources and ffmpeg path.",
+			"when":  "When we create an ffmpeg instance and run a function 'SetPath'.",
+			"then":  "Then path to the resource folder is valid \nAnd path to source should be equal path in ffmpeg settings \nAnd we do not have any errors related to the resource folder.",
 		},
-		"duration": {
-			"title":        "We want to check that the 'Duration' and 'SimpleDuration' functions is returned correctly values.",
-			"check simple": "We want to check that the duration in video should be equal duration in response 'SimpleDuration' function and we have no errors with receiving data.",
-			"check full":   "We want to check that the duration in video should be equal duration in response 'Duration' function and we have no errors with receiving data.",
+		"Duration": {
+			"given": "Given test path to test video and ffmpeg path.",
+			"when":  "When we create an ffmpeg instance and run a function 'Duration'.",
+			"then":  "Then we have no errors with receiving data \nAnd the duration in video should be equal duration in response.",
 		},
-		"trim": {
-			"title":          "We want to check that trim video function is work correctly.",
-			"no error":       "We want to check that function do not return error.",
-			"check duration": "We want to check that created trim video in correct duration.",
+		"SimpleDuration": {
+			"given": "Given test path to test video and ffmpeg path.",
+			"when":  "When we create an ffmpeg instance and run a function 'SimpleDuration'.",
+			"then":  "Then we have no errors with receiving data \nAnd the duration in video should be equal duration in response.",
 		},
-		"bitrate": {
-			"title":    "We want to check that the 'Bitrate' function is work correctly.",
-			"no error": "We want to check that function do not return error.",
-			"equal":    "We want to check that result bitrate be equal test value",
+		"Trim": {
+			"given": "Given test path to test video and ffmpeg path.",
+			"when":  "When we create an ffmpeg instance and run a function 'Trim'.",
+			"then":  "Then response don't should return error \nAnd running function 'Duration' for check value don't should return error\nAnd duration in response should be equal expected duration value.",
 		},
-		"title": {
-			"title":    "We want to check that the 'Title' function is work correctly.",
-			"no error": "We want to check that function do not return error.",
+		"Bitrate": {
+			"given": "Given test path to test video by bitrate and ffmpeg path.",
+			"when":  "When we create an ffmpeg instance and run a function 'Bitrate'.",
+			"then":  "Then response don't should return error \nAnd bitrate of the result is equal to the test value up to a hundred.",
 		},
-		"size": {
-			"title": "We want to check that the 'Size' function is work correctly.",
-			"equal": "We want to check that the width and height parameters should be equal test sizes",
+		"Title": {
+			"given": "Given test path to test video and ffmpeg path.",
+			"when":  "When we create an ffmpeg instance and run a function 'Title'.",
+			"then":  "Then response don't should return error.",
 		},
-		"thumbnail": {
-			"title":    "We want to check that the 'CreateThumbnail' function is work correctly.",
-			"no error": "We want to check that function do not return error.",
+		"Size": {
+			"given": "Given test path to test video and ffmpeg path.",
+			"when":  "When we create an ffmpeg instance and run a function 'Size'.",
+			"then":  "Then response don't should return error \nAnd width in response should be equal width in test value \nAnd height in response should be equal height in test value.",
+		},
+		"Thumbnail": {
+			"given": "Given test path to test video and ffmpeg path.",
+			"when":  "When we create an ffmpeg instance and run a function 'Thumbnail'.",
+			"then":  "Then response don't should return error.",
 		},
 	}
 )
 
-// func TestMain(main *testing)
-func TestStart(test *testing.T) {
-	// createTestSrc()
-	Convey(conveyGiven, test, func() {
-		Convey(conveyTitles["new"]["title"], func() {
+func TestMain(m *testing.M) {
+	if err := ffmpegExists(pathToUtility); err != nil {
+		log.Print(err)
+		os.Exit(1)
+	}
+
+	if err := pathExists(pathToSources); err != nil {
+		log.Print(err)
+		os.Exit(1)
+	}
+
+	createBaseVideo()
+	cloneVideoForBitrate()
+
+	defer removeFile(pathToSources + testVideoFilePath)
+	defer removeFile(pathToSources + testBitrateFilePath)
+
+	m.Run()
+}
+
+func TestNew(test *testing.T) {
+	Convey(conveyTitles["New"]["given"], test, func() {
+		Convey(conveyTitles["New"]["when"], func() {
 			ffmpeg := New()
-			resType := fmt.Sprintf("%T", ffmpeg)
-			Convey(conveyTitles["new"]["check type"], func() {
+			Convey(conveyTitles["New"]["then"], func() {
+				resType := fmt.Sprintf("%T", ffmpeg)
 				checkType := "*ffmpeg.FFMpeg"
-				if resType != checkType {
-					abortProcess = true
-				}
 				So(resType, ShouldEqual, checkType)
 			})
 		})
-		if abortProcess {
-			return
-		}
+	})
+}
 
-		Convey(conveyTitles["setPath"]["title"], func() {
-			ffmpeg, err := initFFMPEG()
-
-			Convey(conveyTitles["setPath"]["valid path"], func() {
-				if err != nil {
-					abortProcess = true
-				}
-				So(err, ShouldEqual, nil)
-			})
-			if err != nil {
-				return
-			}
-
-			Convey(conveyTitles["setPath"]["equal path"], func() {
+func TestSetPath(test *testing.T) {
+	Convey(conveyTitles["SetPath"]["given"], test, func() {
+		Convey(conveyTitles["SetPath"]["when"], func() {
+			ffmpeg := New().SetPath(pathToUtility)
+			Convey(conveyTitles["SetPath"]["then"], func() {
 				So(pathToUtility, ShouldEqual, ffmpeg.path)
 			})
-			if pathToUtility != ffmpeg.path {
-				abortProcess = true
-			}
+		})
+	})
+}
 
-			Convey(conveyTitles["setPath"]["other errors"], func() {
-				_, err := os.Stat(pathToUtility)
+func TestDuration(test *testing.T) {
+	Convey(conveyTitles["Duration"]["given"], test, func() {
+		Convey(conveyTitles["Duration"]["when"], func() {
+			ffmpeg := initFFMPEG()
+			duration, err := ffmpeg.Duration(pathToSources + testVideoFilePath)
+			Convey(conveyTitles["Duration"]["then"], func() {
 				So(err, ShouldEqual, nil)
-				So(os.IsNotExist(err), ShouldEqual, false)
+				if err == nil {
+					actualDuration := duration.String()
+					expectedDuration := expectedDuration.String()
+					So(actualDuration, ShouldEqual, expectedDuration)
+				}
 			})
 		})
-		if abortProcess {
-			return
-		}
+	})
+}
 
-		Convey(conveyTitles["duration"]["title"], func() {
-			ffmpeg, _ := initFFMPEG()
-			sDuration, err := ffmpeg.SimpleDuration(pathToSources + TestVideoFilePath)
-
-			Convey(conveyTitles["duration"]["check simple"], func() {
+func TestSimpleDuration(test *testing.T) {
+	Convey(conveyTitles["SimpleDuration"]["given"], test, func() {
+		Convey(conveyTitles["SimpleDuration"]["when"], func() {
+			ffmpeg := initFFMPEG()
+			sDuration, err := ffmpeg.SimpleDuration(pathToSources + testVideoFilePath)
+			Convey(conveyTitles["SimpleDuration"]["then"], func() {
 				So(err, ShouldEqual, nil)
-				if err != nil {
-					return
+				if err == nil {
+					actualDuration := sDuration.String()
+					expectedDuration := expectedDuration.String()
+					So(actualDuration, ShouldEqual, expectedDuration)
 				}
-				actualDuration := sDuration.String()
-				expectedDuration := TestExpectedDuration.String()
-				So(actualDuration, ShouldEqual, expectedDuration)
-			})
-
-			duration, err := ffmpeg.Duration(pathToSources + TestVideoFilePath)
-
-			Convey(conveyTitles["duration"]["check full"], func() {
-				So(err, ShouldEqual, nil)
-				if err != nil {
-					return
-				}
-				actualDuration := duration.String()
-				expectedDuration := TestExpectedDuration.String()
-				So(actualDuration, ShouldEqual, expectedDuration)
 			})
 		})
+	})
+}
 
-		Convey(conveyTitles["trim"]["title"], func() {
-			ffmpeg, _ := initFFMPEG()
-			testPath := pathToSources + TestVideoFilePath
+func TestTrim(test *testing.T) {
+	Convey(conveyTitles["Trim"]["given"], test, func() {
+		Convey(conveyTitles["Trim"]["when"], func() {
+			ffmpeg := initFFMPEG()
+			testPath := pathToSources + testVideoFilePath
 			trimFilePath := pathToSources + "/testVideoTrim.mpg"
 
 			err := ffmpeg.TrimVideo(testPath, trimFilePath, startTrim, durationTrim)
 			defer removeFile(trimFilePath)
 
-			Convey(conveyTitles["trim"]["no error"], func() {
+			Convey(conveyTitles["Trim"]["then"], func() {
 				So(err, ShouldEqual, nil)
-			})
 
-			Convey(conveyTitles["trim"]["check duration"], func() {
 				duration, err := ffmpeg.Duration(trimFilePath)
 				So(err, ShouldEqual, nil)
-				actualDuration := duration.String()
+
+				actualDuration := duration.Round(time.Second).String()
 				expectedDuration := (time.Second * durationTrim).String()
 				So(actualDuration, ShouldEqual, expectedDuration)
 			})
 		})
+	})
+}
 
-		Convey(conveyTitles["bitrate"]["title"], func() {
-			ffmpeg, _ := initFFMPEG()
-			testPath := pathToSources + TestBitrateFilePath
+func TestBitrate(test *testing.T) {
+	Convey(conveyTitles["Bitrate"]["given"], test, func() {
+		Convey(conveyTitles["Bitrate"]["when"], func() {
+			ffmpeg := initFFMPEG()
+			testPath := pathToSources + testBitrateFilePath
 			bitrate, err := ffmpeg.Bitrate(testPath)
 
 			bitrateStr := strings.Replace(*bitrate, " kb/s", "", 1)
 			bitrateInt, _ := strconv.Atoi(bitrateStr)
 
-			Convey(conveyTitles["bitrate"]["no error"], func() {
+			Convey(conveyTitles["Bitrate"]["then"], func() {
 				So(err, ShouldEqual, nil)
-			})
 
-			Convey(conveyTitles["bitrate"]["equal"], func() {
-				So(bitrateInt, ShouldEqual, TestBitrate)
+				bitrateInt = int(math.Round(float64(bitrateInt)/100) * 100)
+				So(bitrateInt, ShouldEqual, testBitrate)
 			})
 		})
-		// convey.Convey(conveyTitles["title"]["title"], func(convey C) {
-		// 	ffmpeg, _ := initFFMPEG()
-		// 	testPath := pathToSources + TestTitleFilePath
-		// 	title, err := ffmpeg.Title(testPath)
-		// 	log.Print(title)
+	})
+}
 
-		// 	convey.Convey(conveyTitles["title"]["no error"], func() {
-		// 		convey.So(err, ShouldEqual, nil)
-		// 	})
-		// })
+func TestTitle(test *testing.T) {
+	Convey(conveyTitles["Title"]["given"], test, func() {
+		Convey(conveyTitles["Title"]["when"], func() {
+			ffmpeg := initFFMPEG()
+			testPath := pathToSources + testVideoFilePath
+			title, err := ffmpeg.Title(testPath)
 
-		Convey(conveyTitles["size"]["title"], func() {
-			ffmpeg, _ := initFFMPEG()
-			testPath := pathToSources + TestVideoFilePath
+			Convey(conveyTitles["Title"]["then"], func() {
+				So(err, ShouldEqual, nil)
+				So(*title, ShouldEqual, testVideoTitle)
+			})
+		})
+	})
+}
+
+func TestSize(test *testing.T) {
+	Convey(conveyTitles["Size"]["given"], test, func() {
+		Convey(conveyTitles["Size"]["when"], func() {
+			ffmpeg := initFFMPEG()
+			testPath := pathToSources + testVideoFilePath
 			width, height, err := ffmpeg.Size(testPath)
 
-			Convey(conveyTitles["size"]["no error"], func() {
+			Convey(conveyTitles["Size"]["then"], func() {
 				So(err, ShouldEqual, nil)
-			})
-
-			Convey(conveyTitles["size"]["equal"], func() {
-				So(width, ShouldEqual, TestWidth)
-				So(height, ShouldEqual, TestHeight)
+				So(width, ShouldEqual, testWidth)
+				So(height, ShouldEqual, testHeight)
 			})
 		})
+	})
+}
 
-		Convey(conveyTitles["thumbnail"]["title"], func() {
-			ffmpeg, _ := initFFMPEG()
-			testPath := pathToSources + TestVideoFilePath
+func TestThumbnail(test *testing.T) {
+	Convey(conveyTitles["Thumbnail"]["given"], test, func() {
+		Convey(conveyTitles["Thumbnail"]["when"], func() {
+			ffmpeg := initFFMPEG()
+			testPath := pathToSources + testVideoFilePath
 			thumbnailFilePath := pathToSources + "/testThumbnail.jpeg"
 
-			err := ffmpeg.CreateThumbnail(testPath, thumbnailFilePath, TestWidth, TestHeight)
+			err := ffmpeg.CreateThumbnail(testPath, thumbnailFilePath, testWidth, testHeight)
 			defer removeFile(thumbnailFilePath)
 
-			Convey(conveyTitles["thumbnail"]["no error"], func() {
+			Convey(conveyTitles["Thumbnail"]["then"], func() {
 				So(err, ShouldEqual, nil)
 			})
 		})
 	})
 }
 
-func initFFMPEG() (*FFMpeg, error) {
-	ffmpeg := New()
-	res, err := ffmpeg.SetPath(pathToUtility)
-	if err != nil {
-		return nil, err
+func ffmpegExists(path string) error {
+	cmd := exec.Command(path)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	out := &stdout
+	if err := cmd.Run(); err != nil {
+		out = &stderr
 	}
-	return res, nil
+
+	result := regexp.MustCompile(`ffmpeg version`).FindSubmatch(out.Bytes())
+	if len(result) < 1 {
+		return fmt.Errorf("%w: %s", errorUndefinedPath, path)
+	}
+	return nil
+}
+
+func pathExists(path string) error {
+	_, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		return fmt.Errorf("%w: %s", errorUndefinedPath, path)
+	}
+	return nil
+}
+
+func createBaseVideo() error {
+	srcConf := fmt.Sprintf("testsrc=duration=%d:size=%dx%d", expectedDurationTime, testWidth, testHeight)
+	title := fmt.Sprintf("title=%s", testVideoTitle)
+	cmd := exec.Command(pathToUtility, "-f", "lavfi", "-i", srcConf, "-metadata", title, "-y", pathToSources+testVideoFilePath)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	cmd.Start()
+
+	err := cmd.Wait()
+	if err != nil {
+		return fmt.Errorf("%s :%w", "Error creating file", err)
+	}
+
+	output := stderr.String()
+	log.Print(output)
+	return nil
+}
+
+func cloneVideoForBitrate() error {
+	bitrateStr := fmt.Sprintf("%dk", testBitrate)
+	cmd := exec.Command(pathToUtility, "-i", pathToSources+testVideoFilePath, "-y", "-b", bitrateStr, "-minrate", bitrateStr, "-maxrate", bitrateStr, pathToSources+testBitrateFilePath)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	cmd.Start()
+
+	err := cmd.Wait()
+	if err != nil {
+		return fmt.Errorf("%s :%w", "Error creating file", err)
+	}
+
+	output := stderr.String()
+	log.Print(output)
+	return nil
+}
+
+func initFFMPEG() *FFMpeg {
+	ffmpeg := New().SetPath(pathToUtility)
+	return ffmpeg
 }
 
 func removeFile(path string) {
