@@ -30,12 +30,12 @@ type (
 		StandardType    bool
 		Filename        string
 		Title           string
-		Duration        uint
+		Duration        int
 		TrimDuration    int
 		TrimStart       int
-		Bitrate         uint
-		Width           uint
-		Height          uint
+		Bitrate         int
+		Width           int
+		Height          int
 		ThumbnailWidth  int
 		ThumbnailHeight int
 	}
@@ -218,7 +218,7 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
-	if !checkSettingsFile || (checkSettingsFile && !settings.SkipStandardTests) {
+	if !checkSettingsFile || !settings.SkipStandardTests {
 		createBaseVideo()
 		cloneVideoForBitrate()
 
@@ -238,9 +238,7 @@ func TestNew(test *testing.T) {
 		Convey(conveyTitles["New"]["when"], func() {
 			ffmpeg := New()
 			Convey(conveyTitles["New"]["then"], func() {
-				resType := fmt.Sprintf("%T", ffmpeg)
-				checkType := "*ffmpeg.FFMpeg"
-				So(resType, ShouldEqual, checkType)
+				So(ffmpeg, ShouldHaveSameTypeAs, &FFMpeg{})
 			})
 		})
 	})
@@ -269,10 +267,10 @@ func TestDuration(test *testing.T) {
 					duration, err := ffmpeg.Duration(filePath)
 
 					Convey(conveyTitles["Duration"]["then"], func() {
-						So(err, ShouldEqual, nil)
+						So(err, ShouldBeNil)
 						if err == nil {
-							actualDuration := duration.String()
-							expectedDuration := (expectedDurationUnit * time.Duration(config.Duration)).String()
+							actualDuration := *duration
+							expectedDuration := expectedDurationUnit * time.Duration(config.Duration)
 							So(actualDuration, ShouldEqual, expectedDuration)
 						}
 					})
@@ -294,10 +292,10 @@ func TestSimpleDuration(test *testing.T) {
 					duration, err := ffmpeg.SimpleDuration(filePath)
 
 					Convey(conveyTitles["SimpleDuration"]["then"], func() {
-						So(err, ShouldEqual, nil)
+						So(err, ShouldBeNil)
 						if err == nil {
-							actualDuration := duration.String()
-							expectedDuration := (expectedDurationUnit * time.Duration(config.Duration)).String()
+							actualDuration := *duration
+							expectedDuration := expectedDurationUnit * time.Duration(config.Duration)
 							So(actualDuration, ShouldEqual, expectedDuration)
 						}
 					})
@@ -327,13 +325,13 @@ func TestTrim(test *testing.T) {
 					defer removeFile(trimFilePath)
 
 					Convey(conveyTitles["Trim"]["then"], func() {
-						So(err, ShouldEqual, nil)
+						So(err, ShouldBeNil)
 
 						duration, err := ffmpeg.Duration(trimFilePath)
-						So(err, ShouldEqual, nil)
+						So(err, ShouldBeNil)
 
-						actualDuration := duration.Round(time.Second).String()
-						expectedDuration := (time.Second * time.Duration(config.TrimDuration)).String()
+						actualDuration := (*duration).Round(time.Second)
+						expectedDuration := time.Second * time.Duration(config.TrimDuration)
 						So(actualDuration, ShouldEqual, expectedDuration)
 					})
 				})
@@ -355,7 +353,7 @@ func TestBitrate(test *testing.T) {
 					// todo regular
 
 					Convey(conveyTitles["Bitrate"]["then"], func() {
-						So(err, ShouldEqual, nil)
+						So(err, ShouldBeNil)
 						if err != nil {
 							return
 						}
@@ -390,7 +388,7 @@ func TestTitle(test *testing.T) {
 					title, err := ffmpeg.Title(filePath)
 
 					Convey(conveyTitles["Title"]["then"], func() {
-						So(err, ShouldEqual, nil)
+						So(err, ShouldBeNil)
 						So(*title, ShouldEqual, config.Title)
 					})
 				})
@@ -411,7 +409,7 @@ func TestSize(test *testing.T) {
 					width, height, err := ffmpeg.Size(filePath)
 
 					Convey(conveyTitles["Size"]["then"], func() {
-						So(err, ShouldEqual, nil)
+						So(err, ShouldBeNil)
 						So(width, ShouldEqual, config.Width)
 						So(height, ShouldEqual, config.Height)
 					})
@@ -436,7 +434,7 @@ func TestThumbnail(test *testing.T) {
 					defer removeFile(thumbnailFilePath)
 
 					Convey(conveyTitles["Thumbnail"]["then"], func() {
-						So(err, ShouldEqual, nil)
+						So(err, ShouldBeNil)
 					})
 				})
 			})

@@ -1,0 +1,23 @@
+{
+    "srcPath": "./../../testSrc/",
+    "tempPath": "./../../testSrc",
+    "ffmpegPath": "./../../libs/ffmpeg/linux/ffmpeg",
+    "skipStandardTests": false,
+    "fileSettings": [
+        {
+            "filename": "testVideo2.avi",
+            "title": "Test file",
+            "duration": 10,
+            "trimDuration": 5,
+            "trimStart": 2,
+            "width": 1280,
+            "height": 720,
+            "thumbnailWidth": 1280,
+            "thumbnailHeight": 720
+        },
+        {
+            "filename": "testBitrate2.avi",
+            "bitrate": 4000
+        }
+    ]
+}
